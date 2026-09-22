@@ -1,0 +1,5 @@
+# Instructor-provided course material — not my own work
+*.pdf
+
+# OS noise
+.DS_Store
