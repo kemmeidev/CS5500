@@ -32,11 +32,13 @@ paths:
           in: query
           required: false
           description: >-
-            Exact-match filter on `Resource.type`. Must be a non-empty string when
-            provided. Known values are those of `ResourceType`.
+            Exact-match filter on `Resource.type`. Must be a non-empty,
+            non-whitespace string when provided and may appear at most once. Known
+            values are those of `ResourceType`.
           schema:
             type: string
             minLength: 1
+            pattern: \S
           example: ROOM
       responses:
         "200":
@@ -60,7 +62,9 @@ paths:
       description: >-
         Books `resourceId` for the half-open interval [`startTime`, `endTime`). `id` and
         `status` are server-assigned (`readOnly`) and must not be sent. New reservations
-        are created with status `CONFIRMED`. Fails with 409 if the resource is
+        are created with status `CONFIRMED`. Fails with 400 if a field is missing or
+        invalid, `endTime` is not later than `startTime`, or `resourceId` does not
+        reference an existing resource. Fails with 409 if the resource is
         unavailable or already has a non-cancelled reservation overlapping the interval;
         back-to-back slots do not overlap.
       requestBody:
@@ -104,6 +108,7 @@ paths:
           schema:
             type: string
             minLength: 1
+            pattern: \S
           example: user-456
       responses:
         "200":
@@ -165,10 +170,12 @@ components:
         resourceId:
           type: string
           minLength: 1
+          pattern: \S
           example: res-101
         userId:
           type: string
           minLength: 1
+          pattern: \S
           example: user-456
         startTime:
           type: string
