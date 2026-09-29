@@ -1,0 +1,30 @@
+import type { NextFunction, Request, Response } from "express";
+import {
+  createReservation,
+  listActiveReservationsForUser,
+} from "../services/reservation.service.js";
+import type { Reservation } from "../types/reservation.js";
+
+export async function postReservation(
+  req: Request,
+  res: Response<Reservation>,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    res.status(201).json(await createReservation(req.body));
+  } catch (err) {
+    next(err);
+  }
+}
+
+export function getUserReservations(
+  req: Request<{ userId: string }>,
+  res: Response<Reservation[]>,
+  next: NextFunction,
+): void {
+  try {
+    res.status(200).json(listActiveReservationsForUser(req.params.userId));
+  } catch (err) {
+    next(err);
+  }
+}
