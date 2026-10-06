@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: CampusHub Reservation API
-  version: 1.0.0
+  version: 1.1.0
   description: API specification for managing campus resources and time-slotted reservations.
   license:
     name: UNLICENSED
@@ -26,7 +26,7 @@ paths:
       description: >-
         Returns every campus resource. When `type` is provided, only resources whose
         `type` exactly equals it are returned; a value that matches no resource yields
-        an empty array.
+        an empty array. Results are ordered by `id`.
       parameters:
         - name: type
           in: query
@@ -63,8 +63,8 @@ paths:
         Books `resourceId` for the half-open interval [`startTime`, `endTime`). `id` and
         `status` are server-assigned (`readOnly`) and must not be sent. New reservations
         are created with status `CONFIRMED`. Fails with 400 if a field is missing or
-        invalid, `endTime` is not later than `startTime`, or `resourceId` does not
-        reference an existing resource. Fails with 409 if the resource is
+        invalid, `endTime` is not later than `startTime`, or `resourceId` is not a
+        24-character hexadecimal ObjectId or does not reference an existing resource. Fails with 409 if the resource is
         unavailable or already has a non-cancelled reservation overlapping the interval;
         back-to-back slots do not overlap.
       requestBody:
@@ -74,7 +74,7 @@ paths:
             schema:
               $ref: "#/components/schemas/Reservation"
             example:
-              resourceId: res-101
+              resourceId: 66f000000000000000000101
               userId: user-456
               startTime: "2026-10-01T10:00:00Z"
               endTime: "2026-10-01T11:00:00Z"
@@ -137,8 +137,9 @@ components:
       properties:
         id:
           type: string
-          minLength: 1
-          example: res-101
+          description: MongoDB ObjectId of the resource, as 24 hexadecimal characters.
+          pattern: ^[0-9a-fA-F]{24}$
+          example: 66f000000000000000000101
         name:
           type: string
           minLength: 1
@@ -166,12 +167,14 @@ components:
         id:
           type: string
           readOnly: true
-          example: 3f2b8c1e-6a4d-4e7b-9c1a-2d5e8f0a1b3c
+          description: MongoDB ObjectId of the reservation, as 24 hexadecimal characters.
+          pattern: ^[0-9a-fA-F]{24}$
+          example: 6702a4f1c3b9e8d7a6f5e4d3
         resourceId:
           type: string
-          minLength: 1
-          pattern: \S
-          example: res-101
+          description: "`id` of an existing `Resource` (a MongoDB ObjectId reference)."
+          pattern: ^[0-9a-fA-F]{24}$
+          example: 66f000000000000000000101
         userId:
           type: string
           minLength: 1

@@ -1,12 +1,12 @@
-import { randomUUID } from "node:crypto";
-import { ReservationModel } from "../models/reservation.model.js";
-import type { IReservationDocument } from "../models/reservation.model.js";
+import { Types } from "mongoose";
+import { ReservationModel } from "../models/Reservation.model.js";
+import type { IReservation } from "../models/Reservation.model.js";
 import type {
   CreateReservationRequest,
   Reservation,
 } from "../types/reservation.js";
 import { ConflictError, ValidationError } from "./domain.errors.js";
-import { findResourceById } from "./resource.service.js";
+import { findResourceById, isObjectIdString } from "./resource.service.js";
 
 type CreateReservationField = keyof CreateReservationRequest;
 
@@ -30,8 +30,12 @@ interface IParsedCreateReservation {
   endTime: Date;
 }
 
-// In-memory store until a database connection is introduced.
-const reservations: IReservationDocument[] = [];
+interface IStoredReservation extends IReservation {
+  _id: Types.ObjectId;
+}
+
+// Tail of the pending create chain per resource. See withResourceLock.
+const resourceLocks = new Map<string, Promise<void>>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -45,6 +49,19 @@ function requireNonEmptyString(
   if (typeof value !== "string" || value.trim() === "") {
     throw new ValidationError(
       `${field} is required and must be a non-empty string.`,
+    );
+  }
+  return value;
+}
+
+function requireObjectId(
+  body: Record<string, unknown>,
+  field: CreateReservationField,
+): string {
+  const value = requireNonEmptyString(body, field);
+  if (!isObjectIdString(value)) {
+    throw new ValidationError(
+      `${field} must be a 24-character hexadecimal ObjectId.`,
     );
   }
   return value;
@@ -89,7 +106,7 @@ function parseCreateReservation(body: unknown): IParsedCreateReservation {
     }
   }
   const parsed: IParsedCreateReservation = {
-    resourceId: requireNonEmptyString(body, "resourceId"),
+    resourceId: requireObjectId(body, "resourceId"),
     userId: requireNonEmptyString(body, "userId"),
     startTime: requireDateTime(body, "startTime"),
     endTime: requireDateTime(body, "endTime"),
@@ -100,14 +117,10 @@ function parseCreateReservation(body: unknown): IParsedCreateReservation {
   return parsed;
 }
 
-function isActive(doc: IReservationDocument): boolean {
-  return doc.status !== "CANCELLED";
-}
-
-function toReservation(doc: IReservationDocument): Reservation {
+function toReservation(doc: IStoredReservation): Reservation {
   return {
-    id: doc.id,
-    resourceId: doc.resourceId,
+    id: doc._id.toHexString(),
+    resourceId: doc.resourceId.toHexString(),
     userId: doc.userId,
     startTime: doc.startTime.toISOString(),
     endTime: doc.endTime.toISOString(),
@@ -115,10 +128,69 @@ function toReservation(doc: IReservationDocument): Reservation {
   };
 }
 
+// Serializes the overlap check and insert per resource so concurrent requests
+// cannot both pass the check. This holds within one process only; running
+// several instances would need a MongoDB transaction (replica set) instead.
+async function withResourceLock<T>(
+  resourceId: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const previous = resourceLocks.get(resourceId) ?? Promise.resolve();
+  const run = previous.then(task);
+  const tail = run.then(
+    (): void => undefined,
+    (): void => undefined,
+  );
+  resourceLocks.set(resourceId, tail);
+  try {
+    return await run;
+  } finally {
+    if (resourceLocks.get(resourceId) === tail) {
+      resourceLocks.delete(resourceId);
+    }
+  }
+}
+
+async function insertIfFree(
+  input: IParsedCreateReservation,
+): Promise<Reservation> {
+  const resourceObjectId = new Types.ObjectId(input.resourceId);
+  // Half-open intervals: a slot ending at 11:00 does not overlap one starting at 11:00.
+  const overlapping = await ReservationModel.countDocuments({
+    resourceId: resourceObjectId,
+    status: { $ne: "CANCELLED" },
+    startTime: { $lt: input.endTime },
+    endTime: { $gt: input.startTime },
+  });
+  if (overlapping > 0) {
+    throw new ConflictError(
+      "DOUBLE_BOOKING",
+      "Resource is already reserved for this time slot.",
+    );
+  }
+
+  const doc = new ReservationModel({
+    resourceId: resourceObjectId,
+    userId: input.userId,
+    startTime: input.startTime,
+    endTime: input.endTime,
+    status: "CONFIRMED",
+  });
+  try {
+    await doc.validate();
+  } catch (err) {
+    throw new ValidationError(
+      err instanceof Error ? err.message : "Reservation failed validation.",
+    );
+  }
+  await doc.save();
+  return toReservation(doc.toObject());
+}
+
 export async function createReservation(body: unknown): Promise<Reservation> {
   const input = parseCreateReservation(body);
 
-  const resource = findResourceById(input.resourceId);
+  const resource = await findResourceById(input.resourceId);
   if (resource === undefined) {
     throw new ValidationError(
       `resourceId "${input.resourceId}" does not reference an existing resource.`,
@@ -131,46 +203,20 @@ export async function createReservation(body: unknown): Promise<Reservation> {
     );
   }
 
-  const doc: IReservationDocument = {
-    id: randomUUID(),
-    ...input,
-    status: "CONFIRMED",
-  };
-  try {
-    await new ReservationModel(doc).validate();
-  } catch (err) {
-    throw new ValidationError(
-      err instanceof Error ? err.message : "Reservation failed validation.",
-    );
-  }
-
-  // No await between the overlap check and the insert, so concurrent requests
-  // cannot both pass the check. Half-open intervals: a slot ending at 11:00
-  // does not overlap one starting at 11:00.
-  const overlaps = reservations.some(
-    (existing) =>
-      existing.resourceId === input.resourceId &&
-      isActive(existing) &&
-      existing.startTime.getTime() < input.endTime.getTime() &&
-      input.startTime.getTime() < existing.endTime.getTime(),
-  );
-  if (overlaps) {
-    throw new ConflictError(
-      "DOUBLE_BOOKING",
-      "Resource is already reserved for this time slot.",
-    );
-  }
-
-  reservations.push(doc);
-  return toReservation(doc);
+  return withResourceLock(input.resourceId, () => insertIfFree(input));
 }
 
-export function listActiveReservationsForUser(userId: string): Reservation[] {
+export async function listActiveReservationsForUser(
+  userId: string,
+): Promise<Reservation[]> {
   if (userId.trim() === "") {
     throw new ValidationError("userId must be a non-empty string.");
   }
-  return reservations
-    .filter((doc) => doc.userId === userId && isActive(doc))
-    .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
-    .map(toReservation);
+  const docs = await ReservationModel.find({
+    userId,
+    status: { $ne: "CANCELLED" },
+  })
+    .sort({ startTime: 1, _id: 1 })
+    .lean<IStoredReservation[]>();
+  return docs.map(toReservation);
 }

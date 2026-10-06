@@ -21,18 +21,29 @@ MongoDB through Mongoose. All routes are versioned under `/api/v1`.
 Run these from the repository root. **You are required to actually run these — see
 the Verification Protocol below. Reading the code is not verification.**
 
-| Command                | Purpose                                               |
-| ---------------------- | ----------------------------------------------------- |
-| `npm run dev`          | Start the dev server via `tsx watch` (`src/app.ts`)   |
-| `npm run build`        | Compile `src/` → `dist/` with `tsc`                   |
-| `npm start`            | Run the compiled build (`dist/app.js`)                |
-| `npm run typecheck`    | `tsc --noEmit` — must exit 0                          |
-| `npm run lint`         | ESLint over `src/` — must exit 0                      |
-| `npm run lint:openapi` | Redocly lint of `docs/openapi.yaml` — must exit 0     |
-| `npm run format`       | Prettier write over the repo — must leave no `[warn]` |
+| Command                | Purpose                                                                               |
+| ---------------------- | ------------------------------------------------------------------------------------- |
+| `npm run dev`          | Start the dev server via `tsx watch` (`src/app.ts`)                                   |
+| `npm run build`        | Compile `src/` → `dist/` with `tsc`                                                   |
+| `npm start`            | Run the compiled build (`dist/app.js`)                                                |
+| `npm run typecheck`    | `tsc --noEmit` — must exit 0                                                          |
+| `npm run lint`         | ESLint over `src/` — must exit 0                                                      |
+| `npm run lint:openapi` | Redocly lint of `docs/openapi.yaml` — must exit 0                                     |
+| `npm run format`       | Prettier write over the repo — must leave no `[warn]`                                 |
+| `npm run seed`         | Reset the database: upsert seed resources, clear reservations (refuses in production) |
 
 `dev` and `start` load `.env` through Node's native `--env-file-if-exists`. There is
 deliberately no `dotenv` dependency; do not add one.
+
+### Database prerequisite
+
+`dev`, `start`, and `seed` connect to MongoDB at `MONGODB_URI` and **exit at startup
+if it is unreachable**. Locally, MongoDB Community runs as a Homebrew service:
+
+```bash
+brew services start mongodb-community   # once per boot
+npm run seed                            # known state before any manual test run
+```
 
 ---
 
@@ -50,10 +61,12 @@ campushub-backend/
 ├── tsconfig.json
 ├── dist/                # build output, git-ignored
 ├── docs/
-│   └── openapi.yaml     # authoritative API contract (see "API Contract" below)
+│   ├── openapi.yaml     # authoritative API contract (see "API Contract" below)
+│   └── manual-tests.md  # environment setup + curl regression suite
 └── src/
-    ├── app.ts           # Express app assembly + server bootstrap
-    ├── config/          # typed environment/config loading
+    ├── app.ts           # Express app assembly, DB connection, server bootstrap
+    ├── config/          # typed environment/config loading and the DB connection
+    ├── scripts/         # CLI entry points (e.g. seed); import config + services only
     ├── types/           # contract-level API interfaces mirroring docs/openapi.yaml
     ├── routes/          # path definitions and middleware wiring
     ├── controllers/     # HTTP request/response handling
@@ -65,7 +78,12 @@ campushub-backend/
 imports nothing from other `src/` layers, and may be imported by any layer.
 
 Naming convention: `<feature>.<layer>.ts` — e.g. `health.routes.ts`,
-`booking.controller.ts`, `booking.service.ts`, `booking.model.ts`.
+`booking.controller.ts`, `booking.service.ts`. **Models are the exception:** they are
+named after their entity in PascalCase, `<Entity>.model.ts` — e.g. `Resource.model.ts`,
+`Reservation.model.ts` (required by the Lab 3 handout).
+
+`src/scripts/` files are process entry points, not a request layer: they may import
+`src/config/` and services, and never import models directly.
 
 ---
 
@@ -79,6 +97,10 @@ under `/api/v1` other than `/health`. Design-first: the spec changes before the 
   declare. If one is needed, amend `docs/openapi.yaml` first in the same change.
 - `src/types/` interfaces mirror `components/schemas` field-for-field.
 - Every error response body is the spec's `ErrorResponse` (`{ code, message }`).
+- A contract `id` is the document's MongoDB `_id` rendered as a 24-hex string; a
+  contract reference such as `resourceId` is an `ObjectId` `ref` in the model. The
+  `_id` ⇄ `id` mapping happens only in services — models do not add an `id` field, and
+  controllers never see an `ObjectId`.
 - `npm run lint:openapi` must exit 0 after any spec change.
 
 ---
@@ -321,6 +343,8 @@ npm run format                     # must leave no [warn] lines
 
 # 2. Runtime gate — required for any endpoint change
 test -f .env || cp .env-example .env    # .env is git-ignored and machine-local
+brew services start mongodb-community   # MongoDB must be reachable at MONGODB_URI
+npm run seed                            # reset to the seed data
 npm run dev                             # leave running in the background
 
 # 3. Hit the actual endpoint and read the actual response

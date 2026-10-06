@@ -17,13 +17,15 @@ export async function postReservation(
   }
 }
 
-export function getUserReservations(
+export async function getUserReservations(
   req: Request<{ userId: string }>,
   res: Response<Reservation[]>,
   next: NextFunction,
-): void {
+): Promise<void> {
   try {
-    res.status(200).json(listActiveReservationsForUser(req.params.userId));
+    res
+      .status(200)
+      .json(await listActiveReservationsForUser(req.params.userId));
   } catch (err) {
     next(err);
   }

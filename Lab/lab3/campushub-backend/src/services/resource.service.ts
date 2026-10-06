@@ -1,55 +1,29 @@
-import { ResourceModel } from "../models/resource.model.js";
-import type { IResourceDocument } from "../models/resource.model.js";
-import type { Resource } from "../types/reservation.js";
+import { ResourceModel } from "../models/Resource.model.js";
+import type { IResource } from "../models/Resource.model.js";
+import type { Types } from "mongoose";
+import { RESOURCE_TYPES } from "../types/reservation.js";
+import type { Resource, ResourceType } from "../types/reservation.js";
 import { ValidationError } from "./domain.errors.js";
 
-// In-memory store until a database connection is introduced.
-const SEED_RESOURCES: readonly IResourceDocument[] = [
-  {
-    id: "res-101",
-    name: "Study Room 302",
-    type: "ROOM",
-    location: "Snell Library, 3rd Floor",
-    isAvailable: true,
-  },
-  {
-    id: "res-102",
-    name: "3D Printer A",
-    type: "EQUIPMENT",
-    location: "EXP Makerspace",
-    isAvailable: true,
-  },
-  {
-    id: "res-103",
-    name: "Chemistry Lab 1",
-    type: "LAB",
-    location: "Hurtig Hall, Room 115",
-    isAvailable: true,
-  },
-  {
-    id: "res-104",
-    name: "Study Room 118",
-    type: "ROOM",
-    location: "Snell Library, 1st Floor",
-    isAvailable: false,
-  },
-];
+const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
 
-async function assertValidResource(
-  resource: IResourceDocument,
-): Promise<IResourceDocument> {
-  await new ResourceModel(resource).validate();
-  return resource;
+interface IStoredResource extends IResource {
+  _id: Types.ObjectId;
 }
 
-// Top-level await: invalid seed data fails the process at startup.
-const resources: readonly IResourceDocument[] = await Promise.all(
-  SEED_RESOURCES.map(assertValidResource),
-);
+// Mongoose's own isValidObjectId also accepts any 12-character string.
+export function isObjectIdString(value: string): boolean {
+  return OBJECT_ID.test(value);
+}
 
-function toResource(doc: IResourceDocument): Resource {
+// The contract accepts any non-empty filter; an unknown type simply matches nothing.
+function isResourceType(value: string): value is ResourceType {
+  return RESOURCE_TYPES.some((known) => known === value);
+}
+
+function toResource(doc: IStoredResource): Resource {
   return {
-    id: doc.id,
+    id: doc._id.toHexString(),
     name: doc.name,
     type: doc.type,
     location: doc.location,
@@ -57,17 +31,26 @@ function toResource(doc: IResourceDocument): Resource {
   };
 }
 
-export function listResources(type: unknown): Resource[] {
-  if (type === undefined) {
-    return resources.map(toResource);
-  }
-  if (typeof type !== "string" || type.trim() === "") {
+export async function listResources(type: unknown): Promise<Resource[]> {
+  if (type !== undefined && (typeof type !== "string" || type.trim() === "")) {
     throw new ValidationError("type must be a non-empty string when provided.");
   }
-  return resources.filter((doc) => doc.type === type).map(toResource);
+  if (type !== undefined && !isResourceType(type)) {
+    return [];
+  }
+  const filter = type === undefined ? {} : { type };
+  const docs = await ResourceModel.find(filter)
+    .sort({ _id: 1 })
+    .lean<IStoredResource[]>();
+  return docs.map(toResource);
 }
 
-export function findResourceById(id: string): Resource | undefined {
-  const doc = resources.find((candidate) => candidate.id === id);
-  return doc === undefined ? undefined : toResource(doc);
+export async function findResourceById(
+  id: string,
+): Promise<Resource | undefined> {
+  if (!isObjectIdString(id)) {
+    return undefined;
+  }
+  const doc = await ResourceModel.findById(id).lean<IStoredResource>();
+  return doc === null ? undefined : toResource(doc);
 }
