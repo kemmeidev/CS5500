@@ -5,6 +5,8 @@ import {
 } from "../services/reservation.service.js";
 import type { Reservation } from "../types/reservation.js";
 
+// Failures go to next(err); error.controller.ts maps them to 400 / 409 / 500.
+
 export async function postReservation(
   req: Request,
   res: Response<Reservation>,
