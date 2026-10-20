@@ -1,0 +1,8 @@
+extends:
+  - recommended
+
+rules:
+  # The Lab 2 handout mandates the local development server URL.
+  no-server-example.com: off
+  # `User` is a required core model (Lab 2 Goal 2) that no Lab 2 endpoint references yet.
+  no-unused-components: off
