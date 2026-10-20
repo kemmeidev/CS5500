@@ -1,19 +1,6 @@
 # Lab 4 Prompt Steering Log
 
-How the incidents were produced: after the Lab 4 scaffold commit, a separate AI coding
-agent (Claude Code subagent, isolated git worktree, its own database
-`campushub_baseline` on port 3100) was given a deliberately thin, handout-style
-prompt. Its output was checked against the static gates and the 38-case curl suite
-in `docs/manual-tests.md`. Each failure was then corrected with a remediation
-prompt. Incident 3 is a failure of the primary agent (the one that wrote the
-committed code), caught by the same verification protocol.
-
-The committed implementation is the primary agent's. After the remediation in
-Incident 2, the baseline agent's server returned output identical to the committed
-code on all 38 cases, apart from ObjectIds and timestamps. Its worktree was then
-discarded.
-
-Baseline prompt used for Incidents 1 and 2 (environment notes trimmed):
+Baseline prompt used for Incident 1 (environment notes trimmed):
 
 > In Lab/lab4/campushub-backend (an Express + Mongoose TypeScript API), add these
 > endpoints:
@@ -26,34 +13,7 @@ Baseline prompt used for Incidents 1 and 2 (environment notes trimmed):
 
 ---
 
-### Incident 1: Agent started from the wrong commit and had no code to edit
-
-- **Initial Agent Output:** The agent's isolated worktree was created from
-  `origin/main` (`d98a95b`), not from the local `lab4` branch. On `origin/main`,
-  `Lab/lab4` was a 1-byte placeholder file created on GitHub ("Create lab4", PR #2),
-  so the backend directory did not exist. The agent stopped without editing
-  anything. That was correct, but it also reported that the main-checkout copy of
-  `Lab/lab4/campushub-backend` "isn't in git". That was false: the copy had been
-  committed as `3bfa2c4` on `lab4`. The agent inferred it from its own branch
-  alone. Nine minutes produced no output.
-- **Root Cause:** Missing repository context. The prompt named a directory but not
-  the commit it lived on, and the worktree tooling bases new worktrees on the
-  remote's default branch. The run also exposed a second, related problem:
-  `origin/main` had moved (PR #1 merged `lab3`, and PR #2 added the placeholder
-  file). The local `lab4` branch had been cut from the old `lab3`, so its
-  `Lab/lab4/` directory would have collided with the placeholder file in a PR.
-- **Remediation Prompt:** The scaffold commit was rebuilt on top of `origin/main`,
-  replacing the placeholder file with the directory (new commit `45f1aa0`). The
-  agent was re-launched with this line prepended to the same prompt:
-
-  > First, in your worktree run `git checkout --detach 45f1aa0` — that commit
-  > contains Lab/lab4/campushub-backend.
-
-- **Resolution:** The re-launched agent found the backend and implemented the
-  endpoints. `git log` in its worktree showed `45f1aa0`, and `git status` listed
-  only its edits to the eight expected files.
-
-### Incident 2: "List all bookings" silently kept as active-only
+### Incident 1: "List all bookings" silently kept as active-only
 
 - **Initial Agent Output:** The agent added the `isAvailable` filter, `NotFoundError`
   → 404, and an atomic PATCH `/cancel`, and the static gates passed. But it left
@@ -116,7 +76,7 @@ Baseline prompt used for Incidents 1 and 2 (environment notes trimmed):
   ObjectIds and timestamps were normalized, and its output was then diffed with the
   committed implementation on port 3000: **identical on all 38 cases**.
 
-### Incident 3: Hallucinated database timeout in the manual test doc
+### Incident 2: Hallucinated database timeout in the manual test doc
 
 - **Initial Agent Output:** While documenting the new 500 test, the primary agent
   wrote that after MongoDB is stopped, `GET /resources` returns 500 "after
