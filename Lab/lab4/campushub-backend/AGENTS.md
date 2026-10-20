@@ -62,7 +62,8 @@ campushub-backend/
 ├── dist/                # build output, git-ignored
 ├── docs/
 │   ├── openapi.yaml     # authoritative API contract (see "API Contract" below)
-│   └── manual-tests.md  # environment setup + curl regression suite
+│   ├── manual-tests.md  # environment setup + curl regression suite
+│   └── lab4-steering-log.md  # Lab 4 agent failure/remediation incidents
 └── src/
     ├── app.ts           # Express app assembly, DB connection, server bootstrap
     ├── config/          # typed environment/config loading and the DB connection
