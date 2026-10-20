@@ -10,7 +10,9 @@ export async function getResources(
   next: NextFunction,
 ): Promise<void> {
   try {
-    res.status(200).json(await listResources(req.query["type"]));
+    res
+      .status(200)
+      .json(await listResources(req.query["type"], req.query["isAvailable"]));
   } catch (err) {
     next(err);
   }

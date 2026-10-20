@@ -1,11 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
 import {
+  cancelReservation,
   createReservation,
-  listActiveReservationsForUser,
+  listReservationsForUser,
 } from "../services/reservation.service.js";
 import type { Reservation } from "../types/reservation.js";
 
-// Failures go to next(err); error.controller.ts maps them to 400 / 409 / 500.
+// Failures go to next(err); error.controller.ts maps them to 400 / 404 / 409 / 500.
 
 export async function postReservation(
   req: Request,
@@ -25,9 +26,19 @@ export async function getUserReservations(
   next: NextFunction,
 ): Promise<void> {
   try {
-    res
-      .status(200)
-      .json(await listActiveReservationsForUser(req.params.userId));
+    res.status(200).json(await listReservationsForUser(req.params.userId));
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function patchCancelReservation(
+  req: Request<{ id: string }>,
+  res: Response<Reservation>,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    res.status(200).json(await cancelReservation(req.params.id));
   } catch (err) {
     next(err);
   }

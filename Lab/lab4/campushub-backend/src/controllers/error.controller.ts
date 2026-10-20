@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import {
   ConflictError,
   DomainError,
+  NotFoundError,
   ValidationError,
 } from "../services/domain.errors.js";
 import type { ErrorResponse } from "../types/reservation.js";
@@ -9,6 +10,9 @@ import type { ErrorResponse } from "../types/reservation.js";
 function statusFor(err: DomainError): number {
   if (err instanceof ValidationError) {
     return 400;
+  }
+  if (err instanceof NotFoundError) {
+    return 404;
   }
   if (err instanceof ConflictError) {
     return 409;

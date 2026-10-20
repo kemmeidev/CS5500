@@ -16,6 +16,11 @@ export function isObjectIdString(value: string): boolean {
   return OBJECT_ID.test(value);
 }
 
+interface IResourceFilter {
+  type?: ResourceType;
+  isAvailable?: boolean;
+}
+
 // The contract accepts any non-empty filter; an unknown type simply matches nothing.
 function isResourceType(value: string): value is ResourceType {
   return RESOURCE_TYPES.some((known) => known === value);
@@ -31,14 +36,40 @@ function toResource(doc: IStoredResource): Resource {
   };
 }
 
-export async function listResources(type: unknown): Promise<Resource[]> {
+// Query strings arrive as text, so "false" must be parsed, never tested for truthiness.
+function parseIsAvailable(isAvailable: unknown): boolean | undefined {
+  if (isAvailable === undefined) {
+    return undefined;
+  }
+  if (isAvailable === "true") {
+    return true;
+  }
+  if (isAvailable === "false") {
+    return false;
+  }
+  throw new ValidationError(
+    "isAvailable must be exactly true or false when provided.",
+  );
+}
+
+export async function listResources(
+  type: unknown,
+  isAvailable: unknown,
+): Promise<Resource[]> {
   if (type !== undefined && (typeof type !== "string" || type.trim() === "")) {
     throw new ValidationError("type must be a non-empty string when provided.");
   }
+  const availability = parseIsAvailable(isAvailable);
   if (type !== undefined && !isResourceType(type)) {
     return [];
   }
-  const filter = type === undefined ? {} : { type };
+  const filter: IResourceFilter = {};
+  if (type !== undefined) {
+    filter.type = type;
+  }
+  if (availability !== undefined) {
+    filter.isAvailable = availability;
+  }
   const docs = await ResourceModel.find(filter)
     .sort({ _id: 1 })
     .lean<IStoredResource[]>();

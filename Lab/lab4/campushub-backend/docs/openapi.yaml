@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: CampusHub Reservation API
-  version: 1.1.0
+  version: 1.2.0
   description: API specification for managing campus resources and time-slotted reservations.
   license:
     name: UNLICENSED
@@ -26,7 +26,9 @@ paths:
       description: >-
         Returns every campus resource. When `type` is provided, only resources whose
         `type` exactly equals it are returned; a value that matches no resource yields
-        an empty array. Results are ordered by `id`.
+        an empty array. When `isAvailable` is provided, only resources whose
+        `isAvailable` equals it are returned. Filters combine with AND. Results are
+        ordered by `id`.
       parameters:
         - name: type
           in: query
@@ -40,6 +42,15 @@ paths:
             minLength: 1
             pattern: \S
           example: ROOM
+        - name: isAvailable
+          in: query
+          required: false
+          description: >-
+            Exact-match filter on `Resource.isAvailable`. Must be the literal `true` or
+            `false` when provided and may appear at most once; any other value is a 400.
+          schema:
+            type: boolean
+          example: true
       responses:
         "200":
           description: Resources matching the filter.
@@ -95,11 +106,11 @@ paths:
   /reservations/user/{userId}:
     get:
       tags: [Reservations]
-      operationId: listActiveReservationsForUser
-      summary: Fetch all active reservations for a given student
+      operationId: listReservationsForUser
+      summary: Fetch all reservations for a given student
       description: >-
-        Returns the user's active reservations, i.e. those whose status is not
-        `CANCELLED`, ordered by `startTime`. A user with none gets an empty array.
+        Returns every reservation of the user in any status, including `CANCELLED`,
+        ordered by `startTime`. A user with none gets an empty array.
       parameters:
         - name: userId
           in: path
@@ -112,7 +123,7 @@ paths:
           example: user-456
       responses:
         "200":
-          description: Active reservations for the user.
+          description: All reservations for the user.
           content:
             application/json:
               schema:
@@ -121,6 +132,43 @@ paths:
                   $ref: "#/components/schemas/Reservation"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /reservations/{id}/cancel:
+    patch:
+      tags: [Reservations]
+      operationId: cancelReservation
+      summary: Cancel a reservation
+      description: >-
+        Transitions the reservation from `PENDING` or `CONFIRMED` to `CANCELLED` and
+        returns it. Takes no request body. The transition is atomic, so of two
+        concurrent cancels exactly one succeeds. A cancelled reservation no longer
+        blocks its time slot. Fails with 400 if `id` is not a 24-character
+        hexadecimal ObjectId, 404 if no reservation has that `id`, and 409 if it is
+        already `CANCELLED`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "`id` of the reservation to cancel."
+          schema:
+            type: string
+            pattern: ^[0-9a-fA-F]{24}$
+          example: 6702a4f1c3b9e8d7a6f5e4d3
+      responses:
+        "200":
+          description: Reservation cancelled; `status` is `CANCELLED`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/AlreadyCancelled"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -258,6 +306,24 @@ components:
               value:
                 code: RESOURCE_UNAVAILABLE
                 message: Resource is not available for reservation.
+    NotFound:
+      description: No resource exists at the requested identifier.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: NOT_FOUND
+            message: Reservation 6702a4f1c3b9e8d7a6f5e4d3 does not exist.
+    AlreadyCancelled:
+      description: The reservation is already cancelled.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: ALREADY_CANCELLED
+            message: Reservation is already cancelled.
     InternalError:
       description: Unexpected server error.
       content:

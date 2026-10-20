@@ -5,7 +5,11 @@ import type {
   CreateReservationRequest,
   Reservation,
 } from "../types/reservation.js";
-import { ConflictError, ValidationError } from "./domain.errors.js";
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from "./domain.errors.js";
 import { findResourceById, isObjectIdString } from "./resource.service.js";
 
 type CreateReservationField = keyof CreateReservationRequest;
@@ -206,17 +210,41 @@ export async function createReservation(body: unknown): Promise<Reservation> {
   return withResourceLock(input.resourceId, () => insertIfFree(input));
 }
 
-export async function listActiveReservationsForUser(
+export async function listReservationsForUser(
   userId: string,
 ): Promise<Reservation[]> {
   if (userId.trim() === "") {
     throw new ValidationError("userId must be a non-empty string.");
   }
-  const docs = await ReservationModel.find({
-    userId,
-    status: { $ne: "CANCELLED" },
-  })
+  const docs = await ReservationModel.find({ userId })
     .sort({ startTime: 1, _id: 1 })
     .lean<IStoredReservation[]>();
   return docs.map(toReservation);
+}
+
+// A single conditional update, not read-then-write, so of two concurrent cancels
+// exactly one matches. A cancelled reservation stops blocking its slot because
+// the overlap check in insertIfFree ignores CANCELLED.
+export async function cancelReservation(id: string): Promise<Reservation> {
+  if (!isObjectIdString(id)) {
+    throw new ValidationError(
+      "id must be a 24-character hexadecimal ObjectId.",
+    );
+  }
+  const reservationId = new Types.ObjectId(id);
+  const cancelled = await ReservationModel.findOneAndUpdate(
+    { _id: reservationId, status: { $ne: "CANCELLED" } },
+    { $set: { status: "CANCELLED" } },
+    { returnDocument: "after" },
+  ).lean<IStoredReservation>();
+  if (cancelled !== null) {
+    return toReservation(cancelled);
+  }
+  if ((await ReservationModel.exists({ _id: reservationId })) === null) {
+    throw new NotFoundError(`Reservation ${id} does not exist.`);
+  }
+  throw new ConflictError(
+    "ALREADY_CANCELLED",
+    "Reservation is already cancelled.",
+  );
 }

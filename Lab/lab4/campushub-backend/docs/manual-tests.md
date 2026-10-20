@@ -1,7 +1,8 @@
 # Manual Regression Tests
 
-The Lab 2 curl suite, updated for the Lab 3 persistence layer. Lab 3 assumes an
-environment that Lab 2 did not need. Set it up before running anything below.
+The Lab 2 curl suite, updated for the Lab 3 persistence layer and extended with the
+Lab 4 endpoints (cases 23–38). Lab 3 assumes an environment that Lab 2 did not
+need. Set it up before running anything below. Lab 4 adds no new prerequisite.
 
 ## 1. Environment prerequisites
 
@@ -62,9 +63,32 @@ J='Content-Type: application/json'
 | 17  | #6 with `resourceId` `res-101` (malformed)                                                                                                                    | 400 `must be a 24-character hexadecimal ObjectId` |
 | 18  | #6 plus `"status":"PENDING"` or `"id":"x"`                                                                                                                    | 400 `is read-only`                                |
 | 19  | `-d '{"resourceId":'` (malformed JSON)                                                                                                                        | 400 `Request body is not valid JSON.`             |
-| 20  | `curl -i $B/reservations/user/user-456`                                                                                                                       | 200, reservations sorted by `startTime`           |
+| 20  | `curl -i $B/reservations/user/user-456`                                                                                                                       | 200, all statuses, sorted by `startTime`          |
 | 21  | `curl -i $B/reservations/user/nobody`                                                                                                                         | 200 `[]`                                          |
 | 22  | `curl -i $B/nope`                                                                                                                                             | 404 `NOT_FOUND`                                   |
+
+### Lab 4 cases
+
+Run after cases 1–22. `ID` is the `id` returned by case 6.
+
+| #   | Request                                                            | Expected                                                   |
+| --- | ------------------------------------------------------------------ | ---------------------------------------------------------- |
+| 23  | `curl -i "$B/resources?isAvailable=true"`                          | 200, 3 resources                                           |
+| 24  | `curl -i "$B/resources?isAvailable=false"`                         | 200, 1 resource (`...104`)                                 |
+| 25  | `curl -i "$B/resources?type=ROOM&isAvailable=true"`                | 200, 1 resource (`...101`)                                 |
+| 26  | `curl -i "$B/resources?type=ROOM&isAvailable=false"`               | 200, 1 resource (`...104`)                                 |
+| 27  | `curl -i "$B/resources?isAvailable=yes"`                           | 400 `isAvailable must be exactly true or false`            |
+| 28  | `curl -i "$B/resources?isAvailable="`                              | 400                                                        |
+| 29  | `curl -i "$B/resources?isAvailable=true&isAvailable=false"`        | 400 (repeated parameter)                                   |
+| 30  | `curl -i "$B/resources?type=STUDY_ROOM&isAvailable=maybe"`         | 400 (invalid filter is reported even if type matches none) |
+| 31  | `curl -i -X PATCH $B/reservations/$ID/cancel`                      | 200, `status: CANCELLED`                                   |
+| 32  | Repeat #31                                                         | 409 `ALREADY_CANCELLED`                                    |
+| 33  | `curl -i -X PATCH $B/reservations/66f0000000000000000009ff/cancel` | 404 `NOT_FOUND`                                            |
+| 34  | `curl -i -X PATCH $B/reservations/not-an-id/cancel`                | 400 `must be a 24-character hexadecimal ObjectId`          |
+| 35  | Repeat #6 (the slot freed by #31)                                  | 201                                                        |
+| 36  | `curl -i $B/reservations/user/user-456`                            | 200, includes the `CANCELLED` reservation from #31         |
+| 37  | `curl -i $B/reservations/$ID/cancel` (GET)                         | 404 `NOT_FOUND` (only PATCH is routed)                     |
+| 38  | `curl -i -X PATCH $B/reservations/user/cancel`                     | 400 (`user` is not an ObjectId; not the user-list route)   |
 
 ## 3. Behaviour that only exists with a database
 
@@ -78,5 +102,19 @@ J='Content-Type: application/json'
     -d '{"resourceId":"66f000000000000000000103","userId":"user-race","startTime":"2026-11-01T10:00:00Z","endTime":"2026-11-01T11:00:00Z"}' & done | sort | uniq -c
   ```
 
+- **Cancel concurrency:** ten parallel cancels of one reservation produce exactly
+  one 200 and nine 409 `ALREADY_CANCELLED`, because the cancel is a single
+  conditional `findOneAndUpdate`:
+
+  ```bash
+  ID=<id of a CONFIRMED reservation>
+  for i in $(seq 1 10); do curl -s -o /dev/null -w '%{http_code}\n' -X PATCH $B/reservations/$ID/cancel & done | sort | uniq -c
+  ```
+
+- **500 on a lost database:** with the server running, `brew services stop
+mongodb-community`, then `curl -i $B/resources`. After Mongoose's 30 s
+  server-selection timeout (observed: 30.03 s), the response is 500
+  `{"code":"INTERNAL_ERROR","message":"Internal Server Error"}`, with no driver
+  detail in the body. Restart MongoDB afterwards.
 - **Fail-fast:** `brew services stop mongodb-community`, then `npm run dev`. The
   process exits with `MongooseServerSelectionError` and never starts listening.

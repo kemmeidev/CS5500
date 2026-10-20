@@ -18,3 +18,9 @@ export class ValidationError extends DomainError {
 }
 
 export class ConflictError extends DomainError {}
+
+export class NotFoundError extends DomainError {
+  constructor(message: string) {
+    super("NOT_FOUND", message);
+  }
+}
