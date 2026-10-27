@@ -1,0 +1,11 @@
+extends:
+  - recommended
+
+rules:
+  # The Lab 2 handout mandates the local development server URL.
+  no-server-example.com: off
+  # `User` is a required core model (Lab 2 Goal 2) that no Lab 2 endpoint references yet.
+  no-unused-components: off
+  # The Lab 4 handout mandates GET /reservations/user/{userId} and PATCH
+  # /reservations/{id}/cancel; they overlap only on paths with different methods.
+  no-ambiguous-paths: off
