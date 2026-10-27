@@ -1,0 +1,335 @@
+openapi: 3.0.3
+info:
+  title: CampusHub Reservation API
+  version: 1.2.0
+  description: API specification for managing campus resources and time-slotted reservations.
+  license:
+    name: UNLICENSED
+    url: https://choosealicense.com/no-permission/
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local Development Server
+# No authentication yet; every operation is intentionally public until an auth lab adds a scheme.
+security: []
+tags:
+  - name: Resources
+    description: Bookable campus resources (rooms, equipment, labs).
+  - name: Reservations
+    description: Time-slotted reservations of campus resources.
+
+paths:
+  /resources:
+    get:
+      tags: [Resources]
+      operationId: listResources
+      summary: List all resources
+      description: >-
+        Returns every campus resource. When `type` is provided, only resources whose
+        `type` exactly equals it are returned; a value that matches no resource yields
+        an empty array. When `isAvailable` is provided, only resources whose
+        `isAvailable` equals it are returned. Filters combine with AND. Results are
+        ordered by `id`.
+      parameters:
+        - name: type
+          in: query
+          required: false
+          description: >-
+            Exact-match filter on `Resource.type`. Must be a non-empty,
+            non-whitespace string when provided and may appear at most once. Known
+            values are those of `ResourceType`.
+          schema:
+            type: string
+            minLength: 1
+            pattern: \S
+          example: ROOM
+        - name: isAvailable
+          in: query
+          required: false
+          description: >-
+            Exact-match filter on `Resource.isAvailable`. Must be the literal `true` or
+            `false` when provided and may appear at most once; any other value is a 400.
+          schema:
+            type: boolean
+          example: true
+      responses:
+        "200":
+          description: Resources matching the filter.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Resource"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /reservations:
+    post:
+      tags: [Reservations]
+      operationId: createReservation
+      summary: Create a new reservation
+      description: >-
+        Books `resourceId` for the half-open interval [`startTime`, `endTime`). `id` and
+        `status` are server-assigned (`readOnly`) and must not be sent. New reservations
+        are created with status `CONFIRMED`. Fails with 400 if a field is missing or
+        invalid, `endTime` is not later than `startTime`, or `resourceId` is not a
+        24-character hexadecimal ObjectId or does not reference an existing resource. Fails with 409 if the resource is
+        unavailable or already has a non-cancelled reservation overlapping the interval;
+        back-to-back slots do not overlap.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Reservation"
+            example:
+              resourceId: 66f000000000000000000101
+              userId: user-456
+              startTime: "2026-10-01T10:00:00Z"
+              endTime: "2026-10-01T11:00:00Z"
+      responses:
+        "201":
+          description: Reservation created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /reservations/user/{userId}:
+    get:
+      tags: [Reservations]
+      operationId: listReservationsForUser
+      summary: Fetch all reservations for a given student
+      description: >-
+        Returns every reservation of the user in any status, including `CANCELLED`,
+        ordered by `startTime`. A user with none gets an empty array.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: ID of the student whose reservations are returned.
+          schema:
+            type: string
+            minLength: 1
+            pattern: \S
+          example: user-456
+      responses:
+        "200":
+          description: All reservations for the user.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Reservation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /reservations/{id}/cancel:
+    patch:
+      tags: [Reservations]
+      operationId: cancelReservation
+      summary: Cancel a reservation
+      description: >-
+        Transitions the reservation from `PENDING` or `CONFIRMED` to `CANCELLED` and
+        returns it. Takes no request body. The transition is atomic, so of two
+        concurrent cancels exactly one succeeds. A cancelled reservation no longer
+        blocks its time slot. Fails with 400 if `id` is not a 24-character
+        hexadecimal ObjectId, 404 if no reservation has that `id`, and 409 if it is
+        already `CANCELLED`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "`id` of the reservation to cancel."
+          schema:
+            type: string
+            pattern: ^[0-9a-fA-F]{24}$
+          example: 6702a4f1c3b9e8d7a6f5e4d3
+      responses:
+        "200":
+          description: Reservation cancelled; `status` is `CANCELLED`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/AlreadyCancelled"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  schemas:
+    ResourceType:
+      type: string
+      enum: [ROOM, EQUIPMENT, LAB]
+
+    Resource:
+      type: object
+      additionalProperties: false
+      required: [id, name, type, location, isAvailable]
+      properties:
+        id:
+          type: string
+          description: MongoDB ObjectId of the resource, as 24 hexadecimal characters.
+          pattern: ^[0-9a-fA-F]{24}$
+          example: 66f000000000000000000101
+        name:
+          type: string
+          minLength: 1
+          example: Study Room 302
+        type:
+          $ref: "#/components/schemas/ResourceType"
+        location:
+          type: string
+          minLength: 1
+          example: Snell Library, 3rd Floor
+        isAvailable:
+          type: boolean
+          description: Whether the resource can currently be reserved.
+          example: true
+
+    ReservationStatus:
+      type: string
+      enum: [PENDING, CONFIRMED, CANCELLED]
+
+    Reservation:
+      type: object
+      additionalProperties: false
+      required: [id, resourceId, userId, startTime, endTime, status]
+      properties:
+        id:
+          type: string
+          readOnly: true
+          description: MongoDB ObjectId of the reservation, as 24 hexadecimal characters.
+          pattern: ^[0-9a-fA-F]{24}$
+          example: 6702a4f1c3b9e8d7a6f5e4d3
+        resourceId:
+          type: string
+          description: "`id` of an existing `Resource` (a MongoDB ObjectId reference)."
+          pattern: ^[0-9a-fA-F]{24}$
+          example: 66f000000000000000000101
+        userId:
+          type: string
+          minLength: 1
+          pattern: \S
+          example: user-456
+        startTime:
+          type: string
+          format: date-time
+          description: ISO 8601 / RFC 3339 date-time with a time zone designator.
+          example: "2026-10-01T10:00:00Z"
+        endTime:
+          type: string
+          format: date-time
+          description: ISO 8601 / RFC 3339 date-time; must be later than `startTime`.
+          example: "2026-10-01T11:00:00Z"
+        status:
+          allOf:
+            - $ref: "#/components/schemas/ReservationStatus"
+          readOnly: true
+
+    UserRole:
+      type: string
+      enum: [STUDENT, STAFF, ADMIN]
+
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, name, email, role]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          example: user-456
+        name:
+          type: string
+          minLength: 1
+          example: Alex Kim
+        email:
+          type: string
+          format: email
+          example: kim.a@northeastern.edu
+        role:
+          $ref: "#/components/schemas/UserRole"
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code.
+          example: DOUBLE_BOOKING
+        message:
+          type: string
+          description: Human-readable explanation.
+          example: Resource is already reserved for this time slot.
+
+  responses:
+    BadRequest:
+      description: The request is malformed or fails validation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: VALIDATION_ERROR
+            message: type must be a non-empty string when provided.
+    Conflict:
+      description: The resource is unavailable or already reserved for an overlapping slot.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            doubleBooking:
+              value:
+                code: DOUBLE_BOOKING
+                message: Resource is already reserved for this time slot.
+            resourceUnavailable:
+              value:
+                code: RESOURCE_UNAVAILABLE
+                message: Resource is not available for reservation.
+    NotFound:
+      description: No resource exists at the requested identifier.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: NOT_FOUND
+            message: Reservation 6702a4f1c3b9e8d7a6f5e4d3 does not exist.
+    AlreadyCancelled:
+      description: The reservation is already cancelled.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: ALREADY_CANCELLED
+            message: Reservation is already cancelled.
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: INTERNAL_ERROR
+            message: Internal Server Error
