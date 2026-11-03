@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(**/node_modules/**)",
+      "Read(**/package-lock.json)",
+      "Read(**/dist/**)",
+      "Read(**/build/**)",
+      "Read(**/coverage/**)",
+      "Read(**/*.map)",
+      "Read(**/*.tsbuildinfo)",
+      "Read(**/*.log)",
+      "Read(**/logs/**)",
+      "Read(**/.env)",
+      "Read(./campushub-backend/docs/lab4-steering-log.md)",
+      "Read(./client/docs/lab5-error-handling-audit.md)",
+      "Read(./client/docs/screenshots/**)"
+    ]
+  }
+}
