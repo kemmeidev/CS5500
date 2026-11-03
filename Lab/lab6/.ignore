@@ -1,0 +1,29 @@
+# Agent ignore file. ripgrep (and therefore Claude Code's Grep/Glob) honors it on top
+# of .gitignore. Read access to the same paths is denied in .claude/settings.json.
+
+# Dependencies and lockfiles
+node_modules/
+package-lock.json
+
+# Build output and generated artifacts
+dist/
+build/
+coverage/
+*.tsbuildinfo
+*.map
+*.d.ts.map
+
+# Logs
+logs/
+*.log
+
+# Local secrets
+.env
+.env.*
+!.env-example
+!.env.example
+
+# Historical lab write-ups and binary assets: not part of the current source
+campushub-backend/docs/lab4-steering-log.md
+client/docs/lab5-error-handling-audit.md
+client/docs/screenshots/
