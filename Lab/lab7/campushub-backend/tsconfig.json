@@ -11,7 +11,7 @@
     "target": "esnext",
     // For nodejs: (@types/node is installed as a devDependency)
     "lib": ["esnext"],
-    "types": ["node"],
+    "types": ["node", "jest"],
 
     // Other Outputs
     "sourceMap": true,
@@ -35,5 +35,6 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true
-  }
+  },
+  "include": ["src"]
 }

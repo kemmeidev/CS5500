@@ -14,21 +14,27 @@ TypeScript on Express 5, persisting to MongoDB through Mongoose, versioned under
 
 Run from `campushub-backend/`.
 
-| Command                | Purpose                                                                     |
-| ---------------------- | --------------------------------------------------------------------------- |
-| `npm run dev`          | Dev server via `tsx watch` (`src/app.ts`)                                   |
-| `npm run build`        | `tsc`: compile `src/` → `dist/`                                             |
-| `npm start`            | Run the compiled build (`dist/app.js`)                                      |
-| `npm run typecheck`    | `tsc --noEmit`                                                              |
-| `npm run lint`         | ESLint over `src/`                                                          |
-| `npm run lint:openapi` | Redocly lint of `docs/openapi.yaml`                                         |
-| `npm run format`       | Prettier write                                                              |
-| `npm run seed`         | Reset the DB: upsert seed resources, clear reservations (not in production) |
+| Command                 | Purpose                                                                     |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `npm run dev`           | Dev server via `tsx watch` (`src/server.ts`)                                |
+| `npm run build`         | `tsc -p tsconfig.build.json`: compile `src/` → `dist/`, tests excluded      |
+| `npm start`             | Run the compiled build (`dist/server.js`)                                   |
+| `npm test`              | Jest (ESM, ts-jest) against an in-memory MongoDB: no local mongod needed    |
+| `npm run test:coverage` | Jest with coverage; fails under 80% for `services/` + `controllers/`        |
+| `npm run typecheck`     | `tsc --noEmit`                                                              |
+| `npm run lint`          | ESLint over `src/`                                                          |
+| `npm run lint:openapi`  | Redocly lint of `docs/openapi.yaml`                                         |
+| `npm run format`        | Prettier write                                                              |
+| `npm run seed`          | Reset the DB: upsert seed resources, clear reservations (not in production) |
 
 `.env` is loaded by Node's native `--env-file-if-exists`, so there is deliberately no
 `dotenv` dependency. `dev`, `start` and `seed` exit at startup if MongoDB at
 `MONGODB_URI` is unreachable. Locally: `brew services start mongodb-community`, then
 `npm run seed`.
+
+Jest runs the ESM sources through Node's VM modules, so it needs
+`--experimental-vm-modules`. `../.npmrc` sets it for every `npm run` and `npx` call
+(so `npx jest --coverage` works); running `node_modules/.bin/jest` directly does not.
 
 ---
 
@@ -38,15 +44,21 @@ Do not add a top-level directory under `src/` without amending this file first.
 
 ```
 src/
-├── app.ts         # Express assembly, DB connection, server bootstrap
+├── app.ts         # Express assembly only (exported for Supertest): no DB, no listen
+├── server.ts      # runtime entry: DB connection, listen, graceful shutdown
 ├── config/        # typed env loading (the only process.env reader) + DB connection
 ├── scripts/       # CLI entry points (seed): import config + services only, never models
 ├── routes/        # path → controller wiring
 ├── controllers/   # HTTP request/response handling
 ├── middleware/    # app-level Express middleware (errorHandler.ts: 404 + error mapping)
 ├── services/      # business logic + domain errors
-└── models/        # Mongoose schemas and their interfaces
+├── models/        # Mongoose schemas and their interfaces
+└── test/          # Jest harness: setup.ts (in-memory MongoDB) + fixtures.ts
 ```
+
+Tests sit next to the layer they cover in `__tests__/`: service unit tests in
+`services/__tests__/`, Supertest HTTP tests in `routes/__tests__/`. Named
+`<feature>.<layer>.test.ts`; never compiled into `dist/` (`tsconfig.build.json`).
 
 Naming: `<feature>.<layer>.ts` (`reservation.service.ts`). Models are named after the
 entity in PascalCase: `<Entity>.model.ts` (`Reservation.model.ts`).
@@ -77,9 +89,10 @@ entity in PascalCase: `<Entity>.model.ts` (`Reservation.model.ts`).
 - Runtime: `@campushub/shared` (workspace package), `express`, `mongoose` (the only MongoDB access layer: no raw driver, ORM
   or query builder).
 - Dev: `typescript`, `tsx`, `@types/node`, `@types/express`, `eslint`,
-  `typescript-eslint`, `prettier`, `@redocly/cli`. `ts-node` is installed only because
-  the handout lists it. Its ESM loader is broken on Node 24+, so never use it in a
-  script.
+  `typescript-eslint`, `prettier`, `@redocly/cli`; for tests `jest`, `@jest/globals`,
+  `ts-jest`, `@types/jest`, `supertest`, `@types/supertest`, `mongodb-memory-server`.
+  `ts-node` is used only by Jest to load `jest.config.ts`. Its ESM loader is broken
+  on Node 24+, so never use it in a script.
 - Use built-ins instead of `body-parser` (`express.json()`), `axios`/`node-fetch`
   (global `fetch`), `lodash` (ES2023), `moment` (`Date`/`Intl`), and `nodemon`
   (`npm run dev`).
@@ -124,7 +137,17 @@ the import. No `require`, `module.exports` or `__dirname` (use `import.meta.dirn
 
 No hard-coded ports, URIs or secrets. `process.env` is read only in `src/config/`,
 which validates at startup and fails fast. Every new variable goes into `.env-example`
-with a comment.
+with a comment. The one exception is `src/test/setup.ts`, which _writes_ test
+defaults before any test imports `src/config/`.
+
+## Testing
+
+- Tests use the real Mongoose models against `mongodb-memory-server`; `setup.ts`
+  starts one server per test file and empties every collection after each test.
+  Use `jest.spyOn` only to force a failure the database cannot produce on demand.
+- Import `describe`/`it`/`expect`/`jest` from `@jest/globals` (`jest` is not a global
+  under ESM). Read Supertest's `res.body` through the `@campushub/shared` types.
+- A bug fix or new rule comes with a test that fails without it.
 
 ---
 
@@ -134,6 +157,7 @@ Run all of these; reading the code is not verification.
 
 ```bash
 npm run typecheck && npm run lint && npm run lint:openapi && npm run build
+npm run test:coverage                   # all suites pass, ≥80% thresholds hold
 npm run format                          # must leave no [warn] lines
 test -f .env || cp .env-example .env
 brew services start mongodb-community && npm run seed
