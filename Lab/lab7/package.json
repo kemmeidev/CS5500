@@ -1,0 +1,17 @@
+{
+  "name": "campushub",
+  "private": true,
+  "description": "CampusHub Lab 7 workspace: shared contract types, backend and client",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "campushub-backend",
+    "client"
+  ],
+  "scripts": {
+    "postinstall": "npm run build -w @campushub/shared",
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  }
+}
