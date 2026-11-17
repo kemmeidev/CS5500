@@ -160,10 +160,8 @@ async function insertIfFree(
   const overlapping = await ReservationModel.countDocuments({
     resourceId: resourceObjectId,
     status: { $ne: "CANCELLED" },
-    $or: [
-      { startTime: { $gte: input.endTime } },
-      { endTime: { $lte: input.startTime } },
-    ],
+    startTime: { $lt: input.endTime },
+    endTime: { $gt: input.startTime },
   });
   if (overlapping > 0) {
     throw new ConflictError(
