@@ -1,0 +1,6 @@
+{
+  // Production build: tests and the test harness never reach dist/.
+  "extends": "./tsconfig.json",
+  "include": ["src"],
+  "exclude": ["src/**/__tests__/**", "src/test/**"]
+}
