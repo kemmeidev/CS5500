@@ -211,4 +211,6 @@ jobs:
             --title "fix(backend): auto-heal failing tests from #$PR_NUMBER" \
             --body-file "$RUNNER_TEMP/pr-body.md")
           echo "Opened $pr_url"
-          gh pr comment "$PR_NUMBER" --body "🩹 Tests failed. The auto-fix job proposed a patch: $pr_url"
+          # Courtesy link only: a failed comment must not fail a job that already opened the PR.
+          gh pr comment "$PR_NUMBER" --body "🩹 Tests failed. The auto-fix job proposed a patch: $pr_url" ||
+            echo "::warning::Could not comment on #$PR_NUMBER"

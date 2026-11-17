@@ -25,6 +25,23 @@ repo_root="$(git rev-parse --show-toplevel)"
   echo
   grep -oE 'src/[A-Za-z0-9_./-]+\.ts' "$log_file" | sort -u | sed 's/^/- campushub-backend\//' || true
 
+  # Full current contents of the non-test source files this PR changed, so the agent
+  # sees each suspect file whole, not only the diff hunks.
+  echo
+  echo '## Source files changed by this PR (current contents)'
+  git -C "$repo_root" diff --name-only "origin/${base_ref}...HEAD" -- \
+    'Lab/lab8/campushub-backend/src/*.ts' |
+    grep -vE '/__tests__/|/src/test/' |
+    while read -r file; do
+      [ -f "$repo_root/$file" ] || continue
+      echo
+      echo "### ${file#Lab/lab8/}"
+      echo
+      echo '```ts'
+      cat "$repo_root/$file"
+      echo '```'
+    done
+
   echo
   echo "## PR diff against origin/${base_ref} (Lab/lab8)"
   echo
